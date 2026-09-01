@@ -4,10 +4,15 @@ import { useState, useCallback } from 'react'
 import Papa from 'papaparse'
 import { v4 as uuidv4 } from 'uuid'
 
-const SAMPLE_FILES = [
-  { url: '/data/sample/razorpay_settlement.csv', name: 'razorpay_settlement' },
-  { url: '/data/sample/bank_statement.csv', name: 'bank_statement' },
-  { url: '/data/sample/internal_orders.csv', name: 'internal_orders' },
+const SAMPLE_SCENARIOS = [
+  { id: '01-perfect-match', label: 'Perfect Match', desc: '40 records, 100% match rate', files: ['razorpay', 'bank', 'internal'] },
+  { id: '02-fee-adjusted', label: 'Fee Adjusted', desc: '35 records, bank takes 2% fee', files: ['razorpay', 'bank', 'internal'] },
+  { id: '03-date-shifted', label: 'Date Shifted', desc: '45 records, bank settles 2-3 days late', files: ['razorpay', 'bank', 'internal'] },
+  { id: '04-mixed', label: 'Mixed Realistic', desc: '50 records, exact + fee + date-shifted', files: ['razorpay', 'bank', 'internal'] },
+  { id: '05-no-matches', label: 'No Matches', desc: '25 records, zero overlap', files: ['razorpay', 'bank', 'internal'] },
+  { id: '06-large', label: 'Large Dataset', desc: '200 records per source', files: ['razorpay', 'bank', 'internal'] },
+  { id: '07-edge-amounts', label: 'Edge Amounts', desc: '₹0.01 to ₹999,999', files: ['razorpay', 'bank', 'internal'] },
+  { id: '08-with-duplicates', label: 'With Duplicates', desc: '40 records + duplicate IDs', files: ['razorpay', 'bank', 'internal'] },
 ]
 
 function parseCsvText(text, fileName) {
@@ -43,16 +48,18 @@ export default function UploadPage() {
   const [error, setError] = useState('')
   const [loadingSample, setLoadingSample] = useState(false)
 
-  const loadSample = useCallback(async () => {
+  const [selectedScenario, setSelectedScenario] = useState(null)
+
+  const loadSample = useCallback(async (scenario) => {
     setLoadingSample(true); setError('')
     setBatchId(uuidv4().slice(0, 8))
     try {
       const parsed = []
-      for (const s of SAMPLE_FILES) {
-        const res = await fetch(s.url)
-        if (!res.ok) throw new Error(`Failed to load ${s.name}`)
+      for (const name of scenario.files) {
+        const res = await fetch(`/data/samples/${scenario.id}/${name}.csv`)
+        if (!res.ok) throw new Error(`Failed to load ${name}`)
         const text = await res.text()
-        parsed.push(await parseCsvText(text, s.name))
+        parsed.push(await parseCsvText(text, name))
       }
       setFiles(parsed); setStep(1)
     } catch (e) { setError(e.message) }
@@ -135,14 +142,7 @@ export default function UploadPage() {
       {/* Step 0: Pick */}
       {step === 0 && (
         <div className="card p-10">
-          <div className="grid grid-cols-2 gap-4">
-            <button onClick={loadSample} disabled={loadingSample} className="flex flex-col items-center gap-3 p-8 rounded-xl border border-dashed border-[var(--accent)] bg-[#f0fdfa] hover:bg-[#ccfbf1] transition-colors disabled:opacity-50">
-              <div className="w-10 h-10 rounded-full bg-[#99f6e4] flex items-center justify-center">
-                <svg className="w-5 h-5 text-[var(--accent)]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m6.75 12l-3-3m0 0l-3 3m3-3v6m-1.5-15H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" /></svg>
-              </div>
-              <span className="text-sm font-medium">{loadingSample ? 'Loading...' : 'Try sample data'}</span>
-              <span className="text-xs text-[var(--ink-muted)]">3 CSVs, ~280 records</span>
-            </button>
+          <div className="space-y-4">
             <label className="flex flex-col items-center gap-3 p-8 rounded-xl border border-dashed border-[var(--border)] hover:border-[var(--ink-muted)] hover:bg-[#fafafa] transition-colors cursor-pointer">
               <div className="w-10 h-10 rounded-full bg-[#f4f4f5] flex items-center justify-center">
                 <svg className="w-5 h-5 text-[var(--ink-soft)]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" /></svg>
@@ -151,6 +151,17 @@ export default function UploadPage() {
               <span className="text-xs text-[var(--ink-muted)]">Any format</span>
               <input type="file" accept=".csv" multiple onChange={handleFiles} className="hidden" />
             </label>
+            <div>
+              <p className="text-xs text-[var(--ink-muted)] mb-2">Or try a sample scenario:</p>
+              <div className="grid grid-cols-2 gap-2">
+                {SAMPLE_SCENARIOS.map(s => (
+                  <button key={s.id} onClick={() => loadSample(s)} disabled={loadingSample} className="text-left p-3 rounded-lg border border-[var(--border)] hover:border-[var(--accent)] hover:bg-[#f0fdfa] transition-colors disabled:opacity-50">
+                    <div className="text-sm font-medium">{loadingSample ? '...' : s.label}</div>
+                    <div className="text-xs text-[var(--ink-muted)]">{s.desc}</div>
+                  </button>
+                ))}
+              </div>
+            </div>
           </div>
         </div>
       )}
