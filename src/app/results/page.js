@@ -13,6 +13,22 @@ function ResultsContent() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [tab, setTab] = useState('all')
+  const [reviewing, setReviewing] = useState(null)
+
+  const handleReview = async (recordId, newStatus) => {
+    setReviewing(recordId)
+    try {
+      const res = await fetch('/api/review', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: recordId, status: newStatus, batchId: batchId.trim() }),
+      })
+      const d = await res.json()
+      if (!res.ok) throw new Error(d.error)
+      setRecords(prev => prev.map(r => r.id === recordId ? { ...r, status: newStatus, match_reason: newStatus === 'matched' ? 'manual-approve' : 'manual-reject' } : r))
+    } catch (e) { setError(e.message) }
+    finally { setReviewing(null) }
+  }
 
   const load = async () => {
     if (!batchId.trim()) return
@@ -110,7 +126,7 @@ function ResultsContent() {
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-[var(--border)]">
-                    {['Source', 'Txn ID', 'Amount', 'Date', 'Status', 'Reason'].map(h => (
+                    {['Source', 'Txn ID', 'Amount', 'Date', 'Status', 'Reason', ...(tab === 'exceptions' ? ['Action'] : [])].map(h => (
                       <th key={h} className={`px-4 py-2.5 text-[11px] font-medium text-[var(--ink-muted)] uppercase tracking-wide ${h === 'Amount' ? 'text-right' : ''}`}>{h}</th>
                     ))}
                   </tr>
@@ -123,9 +139,25 @@ function ResultsContent() {
                       <td className="px-4 py-2.5 text-right font-mono text-xs">₹{Number(r.amount).toFixed(2)}</td>
                       <td className="px-4 py-2.5 text-xs text-[var(--ink-muted)]">{r.txn_date}</td>
                       <td className="px-4 py-2.5 text-center">
-                        <span className={`badge ${r.status === 'matched' ? 'bg-[#f0fdf4] text-[var(--accent)]' : r.status === 'exception' ? 'bg-[var(--danger-soft)] text-[var(--danger)]' : 'bg-[#fffbeb] text-[#b45309]'}`}>{r.status}</span>
+                        <span className={`badge ${r.status === 'matched' ? 'bg-[#f0fdf4] text-[var(--accent)]' : r.status === 'exception' ? 'bg-[var(--danger-soft)] text-[var(--danger)]' : r.status === 'rejected' ? 'bg-gray-100 text-gray-500' : 'bg-[#fffbeb] text-[#b45309]'}`}>{r.status}</span>
                       </td>
-                      <td className="px-4 py-2.5 text-xs text-[var(--ink-muted)] max-w-[200px] truncate">{r.match_reason || '—'}</td>
+                      <td className="px-4 py-2.5 text-xs text-[var(--ink-muted)] max-w-[160px] truncate">{r.match_reason || '—'}</td>
+                      {tab === 'exceptions' && (
+                        <td className="px-4 py-2.5">
+                          <div className="flex gap-1">
+                            <button
+                              disabled={reviewing === r.id}
+                              onClick={() => handleReview(r.id, 'matched')}
+                              className="text-[10px] px-2 py-1 rounded-lg bg-[#f0fdf4] text-[var(--accent)] hover:bg-[#dcfce7] transition-colors disabled:opacity-50"
+                            >Approve</button>
+                            <button
+                              disabled={reviewing === r.id}
+                              onClick={() => handleReview(r.id, 'rejected')}
+                              className="text-[10px] px-2 py-1 rounded-lg bg-gray-100 text-gray-500 hover:bg-gray-200 transition-colors disabled:opacity-50"
+                            >Reject</button>
+                          </div>
+                        </td>
+                      )}
                     </tr>
                   ))}
                 </tbody>

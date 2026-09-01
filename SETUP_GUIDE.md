@@ -1,346 +1,214 @@
-# 🚀 SettleSync — Complete Beginner Setup Guide
+# SettleSync — Setup Guide
 
-> This guide assumes you know NOTHING about web development. I will explain every single click and command.
-
----
-
-## 📋 What You Need (Install These First)
-
-### 1. Install Node.js (The Engine That Runs Our App)
-
-**What is Node.js?** It's a program that lets your computer run JavaScript code. Think of it like Java Runtime — you need it to run Java programs. Same idea.
-
-**How to install:**
-1. Go to **https://nodejs.org**
-2. Click the big green button that says **"LTS"** (Long Term Support — the stable version)
-3. Run the downloaded file (`.msi` on Windows, `.pkg` on Mac)
-4. Click "Next" through everything, accept defaults
-5. **Restart your computer** after installation
-
-**How to verify it worked:**
-- Open "Command Prompt" (Windows) or "Terminal" (Mac)
-- Type: `node --version`
-- You should see something like `v20.x.x` — that means it worked!
+Clone → configure → run. Everything below is copy-pasteable.
 
 ---
 
-### 2. Install Git (For Version Control & GitHub)
+## Prerequisites
 
-**What is Git?** It tracks changes to your code so you can share it on GitHub.
-
-**How to install:**
-1. Go to **https://git-scm.com**
-2. Download for your operating system
-3. Run the installer, click "Next" through everything, accept all defaults
-
-**How to verify:**
-- Open Command Prompt/Terminal
-- Type: `git --version`
-- You should see `git version 2.xx.x`
+| Tool | Install | Verify |
+|------|---------|--------|
+| **Node.js 20+** | https://nodejs.org → LTS | `node --version` → `v20.x.x` |
+| **Git** | https://git-scm.com | `git --version` → `git version 2.x` |
 
 ---
 
-### 3. Create a GitHub Account (If You Don't Have One)
-
-1. Go to **https://github.com**
-2. Click "Sign up"
-3. Follow the steps to create a free account
-
----
-
-### 4. Create a Supabase Account (Free Database)
-
-**What is Supabase?** It's like Google Sheets but more powerful — a place to store data in the cloud. We'll use it to store transaction records.
-
-**How to set up:**
-1. Go to **https://supabase.com**
-2. Click "Start your project" → Sign up with GitHub (easiest)
-3. Once logged in, click **"New Project"**
-4. Fill in:
-   - **Organization**: Create one (e.g., "My Hackathon")
-   - **Project Name**: `settlesync`
-   - **Database Password**: Make one up (write it down!)
-   - **Region**: Choose closest to you
-5. Click **"Create new project"** — wait 1-2 minutes for it to set up
-
-**Get your API keys:**
-1. Once project is ready, click the **gear icon** (⚙️) in the left sidebar → **"API"**
-2. You'll see two values you need:
-   - **Project URL**: looks like `https://xxxxxxxx.supabase.co`
-   - **anon/public key**: a long string starting with `eyJ...`
-3. **Copy both** — you'll need them soon
-
----
-
-### 5. Set Up the Database Table
-
-1. In Supabase, click the **"SQL Editor"** icon in the left sidebar (looks like a document)
-2. Click **"New query"**
-3. Copy and paste this ENTIRE block of code:
-
-```sql
--- Create the settlements table
-create table settlements (
-  id serial primary key,
-  source text not null,
-  txn_id text,
-  amount numeric,
-  txn_date date,
-  status text default 'unmatched',
-  matched_with int,
-  match_reason text,
-  batch_id text,
-  created_at timestamp default now()
-);
-
--- Create an index for faster queries by batch
-create index idx_settlements_batch on settlements(batch_id);
-
--- Allow the app to read/write (disable RLS for hackathon simplicity)
-alter table settlements enable row level security;
-
-create policy "Allow all access" on settlements
-  for all
-  using (true)
-  with check (true);
-```
-
-4. Click the **"Run"** button (bottom right)
-5. You should see "Success" — the table is created!
-
----
-
-### 6. Get a Grok API Key (For AI Analysis)
-
-**What is Grok?** It's an AI (like ChatGPT) from xAI. We'll only use it for the hard-to-match transactions.
-
-1. Go to **https://console.x.ai**
-2. Sign up / Log in
-3. Go to **"API Keys"** in the menu
-4. Click **"Create API Key"**
-5. Name it `settlesync`
-6. **Copy the key** immediately (you won't see it again!)
-
-> **Note:** If xAI doesn't work for you, the app still works — it'll just mark ambiguous cases as "needs manual check" instead of using AI.
-
----
-
-## 🛠️ Setting Up the Project on Your Computer
-
-### Step 1: Open the Project Folder
-
-1. Find the `settlesync` folder on your computer (where all the code is)
-2. **Right-click** inside the folder → **"Open in Terminal"** or **"Open in Command Prompt"**
-   - On Windows: Hold Shift, right-click, select "Open PowerShell window here" or "Open in Terminal"
-   - On Mac: Open Terminal, type `cd ` (with a space), then drag the folder into the Terminal window
-
-### Step 2: Install Dependencies
-
-Type this command and press Enter:
+## 1. Clone & Install
 
 ```bash
+git clone https://github.com/Anakyn03/SettleSync.git
+cd SettleSync
 npm install
 ```
 
-Wait for it to finish (might take 1-2 minutes). You'll see a bunch of text scroll by — that's normal.
+Expected: no errors, `node_modules/` folder created.
 
-### Step 3: Configure Environment Variables
+---
 
-The `.env.local` file is where you put your secret keys. Let's fill it in:
+## 2. Database (Supabase)
 
-1. Open the `.env.local` file in any text editor (Notepad, VS Code, etc.)
-2. Replace the empty values with your actual keys:
+1. Go to https://supabase.com → New Project → name it `settlesync`
+2. Once ready, click **SQL Editor** (left sidebar) → **New query**
+3. Paste this entire block and click **Run**:
+
+```sql
+-- SettleSync schema
+CREATE TABLE IF NOT EXISTS settlements (
+  id SERIAL PRIMARY KEY,
+  source TEXT NOT NULL,
+  txn_id TEXT,
+  amount NUMERIC,
+  txn_date DATE,
+  status TEXT DEFAULT 'unmatched',
+  matched_with INT,
+  match_reason TEXT,
+  batch_id TEXT,
+  confidence NUMERIC DEFAULT 0,
+  run_id INT,
+  column_mapping JSONB,
+  created_at TIMESTAMP DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS reconciliation_runs (
+  id SERIAL PRIMARY KEY,
+  batch_id TEXT NOT NULL UNIQUE,
+  status TEXT DEFAULT 'pending',
+  total_records INT DEFAULT 0,
+  matched_count INT DEFAULT 0,
+  exception_count INT DEFAULT 0,
+  match_rate NUMERIC DEFAULT 0,
+  config JSONB DEFAULT '{}',
+  started_at TIMESTAMPTZ DEFAULT NOW(),
+  completed_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS match_decisions (
+  id SERIAL PRIMARY KEY,
+  run_id INT REFERENCES reconciliation_runs(id) ON DELETE CASCADE,
+  record_a_id INT,
+  record_b_id INT,
+  match_type TEXT,
+  confidence NUMERIC,
+  reasoning TEXT,
+  feature_vector JSONB,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS source_patterns (
+  id SERIAL PRIMARY KEY,
+  source TEXT NOT NULL,
+  pattern_type TEXT,
+  pattern_value JSONB NOT NULL,
+  sample_size INT DEFAULT 0,
+  confidence NUMERIC DEFAULT 0,
+  last_updated TIMESTAMPTZ DEFAULT NOW(),
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS learning_data (
+  id SERIAL PRIMARY KEY,
+  feature_vector JSONB NOT NULL,
+  label BOOLEAN NOT NULL,
+  confidence NUMERIC,
+  source_pair TEXT,
+  run_id INT REFERENCES reconciliation_runs(id) ON DELETE SET NULL,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_settlements_batch ON settlements(batch_id);
+CREATE INDEX IF NOT EXISTS idx_settlements_source ON settlements(source);
+CREATE INDEX IF NOT EXISTS idx_runs_batch ON reconciliation_runs(batch_id);
+CREATE INDEX IF NOT EXISTS idx_decisions_run ON match_decisions(run_id);
+CREATE INDEX IF NOT EXISTS idx_patterns_source ON source_patterns(source);
+CREATE INDEX IF NOT EXISTS idx_learning_pair ON learning_data(source_pair);
+
+ALTER TABLE settlements DISABLE ROW LEVEL SECURITY;
+ALTER TABLE reconciliation_runs DISABLE ROW LEVEL SECURITY;
+ALTER TABLE match_decisions DISABLE ROW LEVEL SECURITY;
+ALTER TABLE source_patterns DISABLE ROW LEVEL SECURITY;
+ALTER TABLE learning_data DISABLE ROW LEVEL SECURITY;
+```
+
+4. Expected: `Success. No rows returned`
+5. Copy your **Project URL** and **anon key** from Settings → API
+
+---
+
+## 3. Grok API Key (optional)
+
+1. Go to https://console.x.ai → sign up → API Keys → Create
+2. Name it `settlesync` → copy the key
+
+If you skip this, the app still works — ambiguous cases get marked "needs review" instead of AI analysis.
+
+---
+
+## 4. Environment Variables
+
+Create `.env.local` in the project root:
 
 ```
-NEXT_PUBLIC_SUPABASE_URL=https://xxxxxxxx.supabase.co
-NEXT_PUBLIC_SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...your_actual_key_here
-GROK_API_KEY=xai-your_actual_grok_key_here
+NEXT_PUBLIC_SUPABASE_URL=https://YOUR_PROJECT.supabase.co
+NEXT_PUBLIC_SUPABASE_ANON_KEY=eyJhbGci...your_key
+GROK_API_KEY=xai-your_key_here
 ```
 
-3. **Save the file**
+---
 
-> ⚠️ **IMPORTANT:** Never share these keys publicly or commit them to GitHub. The `.gitignore` file already excludes `.env.local` from being uploaded.
-
-### Step 4: Generate Test Data
-
-Type this command:
+## 5. Generate Sample Data & Run
 
 ```bash
-npm run generate-data
-```
-
-This creates 3 CSV files with fake transaction data in `public/data/`.
-
-### Step 5: Start the App
-
-Type this command:
-
-```bash
+npm run generate-sample
 npm run dev
 ```
 
-You'll see output like:
+Expected output:
 ```
 ▲ Next.js 15.x.x
 - Local: http://localhost:3000
+- Environments: .env.local
 ```
 
-**Open your browser** and go to: **http://localhost:3000**
-
-🎉 **Congratulations! The app is running on your computer!**
+Open **http://localhost:3000** in your browser.
 
 ---
 
-## 🧪 Testing the App (Step by Step)
+## 6. Test the Full Flow
 
-### Test 1: Upload CSV Files
+1. **Upload**: Click "Load Sample Data" → follow the 3 steps → Upload
+2. **Reconcile**: Click "Reconcile" → enter batch ID → Run
+3. **Results**: Match rate and exceptions render on screen
+4. **Export**: Click CSV or JSON to download audit log
 
-1. On the home page, you'll see three upload cards: Razorpay, Bank, Internal
-2. For **Razorpay Settlement**: Click "Choose File" → navigate to `public/data/` → select `razorpay_settlement.csv`
-3. You should see a preview of the data and a row count
-4. Click **"Upload Razorpay Settlement"**
-5. You should see "✅ X records uploaded successfully"
-6. **Repeat** for Bank Statement (`bank_statement.csv`) and Internal Orders (`internal_orders.csv`)
-7. Once all 3 are uploaded, you'll see "🎉 All files uploaded!" with a button to proceed
-
-### Test 2: Run Reconciliation
-
-1. Click **"Run Reconciliation →"** (or go to http://localhost:3000/reconcile)
-2. The batch ID should already be filled in
-3. Click **"Run Reconciliation"**
-4. Watch the progress — it should complete in a few seconds
-5. You'll see results: match rate, matched count, exceptions count
-
-### Test 3: View Results
-
-1. Click **"View Detailed Results →"**
-2. You'll see a big match rate number (should be 80%+)
-3. Browse the tabs: All Records, Exceptions, Matched
-4. Click **"Export CSV"** to download the audit log
-
-### Test 4: Error Handling
-
-Try these to make sure errors are handled properly:
-1. Upload an empty CSV file → should show "CSV file is empty"
-2. Upload a file that's not CSV → should show "Please upload a CSV file"
-3. Try to reconcile with a fake batch ID → should show "No records found"
-4. Upload the same CSV twice for the same source → should skip duplicates
+Expected: match rate 85%+ for sample data, exceptions tab shows unmatched records.
 
 ---
 
-## 📤 Pushing to GitHub
+## Troubleshooting
 
-### Step 1: Create a New Repository on GitHub
+| What you see | What it means | What to do |
+|---|---|---|
+| `Supabase credentials not configured` | `.env.local` missing or wrong | Check URL and key match Supabase Settings → API |
+| `Could not find the 'confidence' column` | SQL migration wasn't run | Re-run the SQL block from Step 2 |
+| Upload shows "0 rows parsed" | CSV headers don't match | Ensure CSV has `txn_id`, `amount`, `date` columns (or map them in the UI) |
+| Empty CSV uploaded → error | Expected behavior | The app rejects empty files — upload a CSV with data |
+| Duplicate txn_id in same source → skipped | Expected behavior | Duplicate records within the same source are ignored to prevent false matches |
+| Grok API timeout | xAI rate limit or network | Reconciliation still completes — ambiguous cases are marked "needs review" instead |
+| `npm run dev` shows port 3000 in use | Another process is using the port | Run `npx kill-port 3000` then `npm run dev` again |
+| Results page shows all "unmatched" | Status wasn't written to DB | Re-run reconciliation — this was a bug that's now fixed |
+| `CREATE POLICY IF NOT EXISTS` SQL error | PostgreSQL doesn't support IF NOT EXISTS for policies | Use the SQL block above (it handles this correctly) |
 
-1. Go to **https://github.com**
-2. Click the **"+"** icon (top right) → **"New repository"**
-3. Fill in:
-   - **Repository name**: `settlesync`
-   - **Description**: "AI-powered transaction reconciliation for hackathon"
-   - **Public** (so judges can see it)
-4. **DON'T** check "Add a README" (we already have files)
-5. Click **"Create repository"**
+---
 
-### Step 2: Connect Your Local Folder to GitHub
+## Project Structure
 
-Go back to your Terminal (make sure you're in the settlesync folder):
-
-```bash
-git init
-git add .
-git commit -m "Initial SettleSync - AI transaction reconciliation"
-git branch -M main
-git remote add origin https://github.com/YOUR_USERNAME/settlesync.git
-git push -u origin main
 ```
-
-Replace `YOUR_USERNAME` with your actual GitHub username.
-
-> If asked for credentials, use your GitHub username and a **Personal Access Token** (not your password). To create one: GitHub → Settings → Developer settings → Personal access tokens → Tokens (classic) → Generate new token → Check `repo` scope → Generate.
-
----
-
-## 🌐 Deploying to Vercel (Free Hosting)
-
-### Step 1: Create a Vercel Account
-
-1. Go to **https://vercel.com**
-2. Click "Sign Up" → **Continue with GitHub** (easiest)
-3. Authorize Vercel to access your GitHub
-
-### Step 2: Import Your Project
-
-1. On the Vercel dashboard, click **"Add New..."** → **"Project"**
-2. Find `settlesync` in the list → Click **"Import"**
-3. You'll see a configuration page — keep defaults
-4. Before clicking Deploy, expand **"Environment Variables"**
-5. Add these three:
-   - `NEXT_PUBLIC_SUPABASE_URL` = your Supabase URL
-   - `NEXT_PUBLIC_SUPABASE_ANON_KEY` = your Supabase anon key
-   - `GROK_API_KEY` = your Grok API key
-6. Click **"Deploy"**
-7. Wait 1-2 minutes for the build to finish
-
-### Step 3: Your App is Live!
-
-After deployment, Vercel gives you a URL like `https://settlesync.vercel.app`
-
-**Share this URL with anyone** — they can use the app without installing anything!
-
----
-
-## 🔄 Updating the Deployed App
-
-Whenever you make changes:
-
-```bash
-git add .
-git commit -m "Description of what you changed"
-git push
+src/
+  app/
+    page.js              → Landing page
+    upload/page.js       → CSV upload wizard
+    reconcile/page.js    → Run reconciliation
+    results/page.js      → View results + review exceptions
+    dashboard/page.js    → Analytics overview
+    api/
+      upload/route.js    → Handles CSV uploads
+      reconcile/route.js → Three-tier matching engine
+      results/route.js   → Fetches results
+      review/route.js    → Approve/reject exceptions
+      export/route.js    → Download audit log
+      analytics/route.js → Dashboard stats
+      progress/route.js  → SSE progress stream
+  lib/
+    matching.js          → Core matching functions (tryMatch, daysBetween)
+    confidence.js        → Confidence scoring + feature extraction
+    ml.js                → Logistic regression classifier (zero dependencies)
+    grok.js              → xAI Grok integration
+    patterns.js          → Fee/lag pattern detection
+    supabase.js          → Supabase client
+scripts/
+  generate_sample_data.js  → Creates sample CSVs
+  generate_test_folders.js → Creates 10 test datasets
+public/
+  data/                  → Sample CSVs and 10 test folders
 ```
-
-Vercel automatically redeploys every time you push to GitHub! Magic! ✨
-
----
-
-## 🐛 Common Problems & Fixes
-
-| Problem | Fix |
-|---------|-----|
-| `npm: command not found` | Node.js isn't installed or not in PATH. Reinstall Node.js and restart terminal. |
-| `Supabase credentials not configured` | Check your `.env.local` file has the right values |
-| `No records found` | Upload all 3 CSV files first before running reconciliation |
-| Upload says "0 rows" | Make sure CSV has headers: `txn_id,amount,date` |
-| Vercel deploy fails | Check that environment variables are set correctly in Vercel dashboard |
-| `git: command not found` | Install Git from https://git-scm.com |
-
----
-
-## 📁 What Each File Does (Quick Reference)
-
-| File | What It Does |
-|------|-------------|
-| `src/app/page.js` | The upload page (home page) |
-| `src/app/reconcile/page.js` | The reconcile button page |
-| `src/app/results/page.js` | The results dashboard |
-| `src/app/api/upload/route.js` | Handles CSV uploads to database |
-| `src/app/api/reconcile/route.js` | The matching engine (Pass 1 + Pass 2) |
-| `src/app/api/results/route.js` | Fetches results from database |
-| `src/app/api/export/route.js` | Downloads audit log as CSV/JSON |
-| `src/lib/supabase.js` | Connects to Supabase (server-side) |
-| `src/lib/grok.js` | Calls Grok AI for ambiguous matches |
-| `scripts/generate_data.js` | Creates test CSV files |
-| `.env.local` | Your secret API keys (NEVER share this!) |
-
----
-
-## ✅ Hackathon Submission Checklist
-
-- [ ] App deployed and accessible via URL
-- [ ] Can upload 3 CSV files
-- [ ] Can run reconciliation
-- [ ] Shows match rate % and exceptions
-- [ ] AI analysis works for ambiguous cases
-- [ ] Can export audit log
-- [ ] Handles errors gracefully (empty CSV, duplicates, API failures)
-- [ ] README with setup instructions
