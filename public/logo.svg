@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 180 40" fill="none">
+  <!-- Icon: two circling arrows forming a sync symbol -->
+  <g transform="translate(2, 4)">
+    <!-- Left arrow -->
+    <path d="M14 2C7.373 2 2 7.373 2 14" stroke="#6366f1" stroke-width="2.5" stroke-linecap="round" fill="none"/>
+    <path d="M2 14L6 10M2 14L6 18" stroke="#6366f1" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+    <!-- Right arrow -->
+    <path d="M18 26C24.627 26 30 20.627 30 14" stroke="#6366f1" stroke-width="2.5" stroke-linecap="round" fill="none"/>
+    <path d="M30 14L26 10M30 14L26 18" stroke="#6366f1" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+    <!-- Center checkmark -->
+    <path d="M11 14L14 17L20 11" stroke="#0f172a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+  </g>
+  <!-- Wordmark -->
+  <text x="42" y="28" font-family="Inter, sans-serif" font-weight="700" font-size="22" fill="#0f172a">
+    Settle<tspan fill="#6366f1">Sync</tspan>
+  </text>
+</svg>

@@ -1,0 +1,20 @@
+{
+  "total": 487,
+  "bySource": {
+    "razorpay": 165,
+    "bank": 159,
+    "internal": 163
+  },
+  "byType": {
+    "exact": 210,
+    "fee-adjusted": 75,
+    "date-shifted": 45,
+    "large-fee": 30,
+    "missing-source": 24,
+    "orphan": 8,
+    "duplicate": 20,
+    "high-value": 30,
+    "micro": 24,
+    "weekend": 21
+  }
+}
