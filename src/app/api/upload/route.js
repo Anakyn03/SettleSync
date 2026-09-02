@@ -84,18 +84,24 @@ export async function POST(request) {
       return NextResponse.json({ error: 'All rows already exist', errors, inserted: 0 }, { status: 400 })
     }
 
-    const { data, error: insertError } = await db
-      .from('settlements')
-      .insert(newRows)
-      .select()
-
-    if (insertError) {
-      return NextResponse.json({ error: insertError.message }, { status: 500 })
+    // Batch insert in chunks of 500 to avoid payload limits
+    const BATCH = 500
+    let inserted = []
+    for (let i = 0; i < newRows.length; i += BATCH) {
+      const chunk = newRows.slice(i, i + BATCH)
+      const { data, error: insertError } = await db
+        .from('settlements')
+        .insert(chunk)
+        .select()
+      if (insertError) {
+        return NextResponse.json({ error: insertError.message }, { status: 500 })
+      }
+      inserted.push(...(data || []))
     }
 
     return NextResponse.json({
       success: true,
-      inserted: data.length,
+      inserted: inserted.length,
       errors: errors.length ? errors : undefined,
       source: normalizedSource,
       batchId,

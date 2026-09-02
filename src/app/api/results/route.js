@@ -10,7 +10,7 @@ export async function GET(request) {
   const db = getSupabase()
   const { data, error } = await db
     .from('settlements')
-    .select('*')
+    .select('id, source, txn_id, amount, txn_date, status, match_reason, confidence, batch_id, matched_with')
     .eq('batch_id', batchId)
     .order('source')
     .order('txn_id')

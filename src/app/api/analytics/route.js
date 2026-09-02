@@ -9,7 +9,7 @@ export async function GET(request) {
     if (type === 'overview') {
       const { data: runs } = await db
         .from('reconciliation_runs')
-        .select('*')
+        .select('id, batch_id, status, matched_count, exception_count, match_rate, started_at, completed_at')
         .order('created_at', { ascending: false })
         .limit(10)
 
@@ -19,7 +19,7 @@ export async function GET(request) {
     if (type === 'patterns') {
       const { data: patterns } = await db
         .from('source_patterns')
-        .select('*')
+        .select('source, pattern_type, confidence, sample_size, last_updated')
         .order('confidence', { ascending: false })
 
       const { count: trainingSamples } = await db
