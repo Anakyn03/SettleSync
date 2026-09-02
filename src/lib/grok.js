@@ -14,12 +14,22 @@ Rules:
 4. Partial refunds, chargebacks, and duplicates are possible
 5. If amounts differ by >5% with no fee explanation, likely different transactions
 
+Never use generic filler like 'likely a timing issue' or 'possible fee deduction' without stating the actual percentage or day count from the computed values provided.
+
 Respond with ONLY a JSON object:
-{"isMatch": true/false, "reason": "1-2 sentence explanation", "confidence": "high/medium/low"}`
+{"isMatch": true/false, "reason": "1-2 sentence explanation citing specific numbers", "confidence": "high/medium/low"}`
 
 export async function analyzeException(recordA, recordB) {
   try {
-    const prompt = `Transaction A — Source: ${recordA.source}, ID: ${recordA.txn_id}, Amount: ₹${recordA.amount}, Date: ${recordA.txn_date}\nTransaction B — Source: ${recordB.source}, ID: ${recordB.txn_id}, Amount: ₹${recordB.amount}, Date: ${recordB.txn_date}\n\nAre these the same transaction? Explain your reasoning.`
+    const amountA = Number(recordA.amount)
+    const amountB = Number(recordB.amount)
+    const diff = Math.abs(amountA - amountB)
+    const diffPercent = ((diff / Math.max(amountA, amountB)) * 100).toFixed(2)
+    const dayGap = Math.abs(
+      (new Date(recordA.txn_date) - new Date(recordB.txn_date)) / (1000 * 60 * 60 * 24)
+    )
+
+    const prompt = `Transaction A — Source: ${recordA.source}, ID: ${recordA.txn_id}, Amount: ₹${recordA.amount}, Date: ${recordA.txn_date}\nTransaction B — Source: ${recordB.source}, ID: ${recordB.txn_id}, Amount: ₹${recordB.amount}, Date: ${recordB.txn_date}\n\nComputed amount difference: ₹${diff.toFixed(2)} (${diffPercent}%)\nComputed date gap: ${dayGap} day(s)\n\nAre these the same transaction? Explain your reasoning citing these specific numbers.`
 
     const res = await fetch(GROK_URL, {
       method: 'POST',
@@ -33,8 +43,8 @@ export async function analyzeException(recordA, recordB) {
           { role: 'system', content: SYSTEM_PROMPT },
           { role: 'user', content: prompt },
         ],
-        max_tokens: 200,
-        temperature: 0.1,
+        max_tokens: 150,
+        temperature: 0.5,
       }),
     })
 

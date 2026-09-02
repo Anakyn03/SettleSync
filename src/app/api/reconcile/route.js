@@ -164,13 +164,14 @@ export async function POST(request) {
     if (unmatched.length > 0) {
       const allByTxnId = groupBy(allRecords, 'txn_id')
 
+      // Collect all pairs first (ML predictions are synchronous)
+      const grokPairs = []
       for (const record of unmatched) {
         const peers = (allByTxnId[record.txn_id] || []).filter(
           r => r.id !== record.id && r.source !== record.source
         )
         if (!peers.length) continue
 
-        // Pick best peer (closest amount)
         const bestPeer = peers.reduce((best, p) => {
           const dBest = Math.abs(Number(best.amount) - Number(record.amount))
           const dCurr = Math.abs(Number(p.amount) - Number(record.amount))
@@ -178,18 +179,14 @@ export async function POST(request) {
         })
 
         const features = extractFeatures(record, bestPeer)
-
-        // ML prediction
         const mlResult = predict(features)
 
         if (mlResult.probability >= ML_AUTO_MATCH) {
-          // ML is confident it's a match
           const confidence = calculateConfidence(record, bestPeer, allPatterns)
           record.status = 'matched'
           record.match_reason = `ML match (${(mlResult.probability * 100).toFixed(0)}% confidence)`
           record.confidence = confidence
           mlMatched++
-
           pass2Decisions.push({
             run_id: runId, record_a_id: record.id, record_b_id: bestPeer.id,
             match_type: 'ml-match', confidence: confidence,
@@ -200,7 +197,6 @@ export async function POST(request) {
           record.status = 'exception'
           record.match_reason = `ML exception (${((1 - mlResult.probability) * 100).toFixed(0)}% confidence)`
           record.confidence = 1 - mlResult.probability
-
           pass2Decisions.push({
             run_id: runId, record_a_id: record.id, record_b_id: bestPeer.id,
             match_type: 'exception', confidence: 1 - mlResult.probability,
@@ -208,9 +204,33 @@ export async function POST(request) {
             feature_vector: features,
           })
         } else {
-          const analysis = await analyzeException(record, bestPeer)
-          const confidence = calculateConfidence(record, bestPeer, allPatterns)
+          // Needs Grok — collect for batched API calls
+          grokPairs.push({ record, bestPeer, features })
+        }
+      }
 
+      // Batched Grok calls — 5 concurrent per batch
+      function chunk(arr, size) {
+        const out = []
+        for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size))
+        return out
+      }
+
+      const BATCH_SIZE = 5
+      const batches = chunk(grokPairs, BATCH_SIZE)
+      let grokProcessed = 0
+
+      for (const batch of batches) {
+        const batchResults = await Promise.all(
+          batch.map(({ record, bestPeer, features }) =>
+            analyzeException(record, bestPeer).then(analysis => ({
+              record, bestPeer, features, analysis,
+              confidence: calculateConfidence(record, bestPeer, allPatterns),
+            }))
+          )
+        )
+
+        for (const { record, bestPeer, features, analysis, confidence } of batchResults) {
           if (analysis.isMatch) {
             record.status = 'matched'
             record.match_reason = `[Grok] ${analysis.reason}`
@@ -231,6 +251,14 @@ export async function POST(request) {
             feature_vector: features,
           })
         }
+
+        grokProcessed += batch.length
+        updateProgress(batchId, {
+          phase: 'pass2',
+          progress: 55 + Math.round((grokProcessed / Math.max(grokPairs.length, 1)) * 35),
+          message: `Grok analysis: ${grokProcessed}/${grokPairs.length} pairs`,
+          matched: allRecords.filter(r => r.status === 'matched').length
+        })
       }
     }
 
