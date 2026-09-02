@@ -78,6 +78,16 @@ function ResultsContent() {
             <input type="text" value={batchId} onChange={e => setBatchId(e.target.value)} placeholder="a1b2c3d4" className="input font-mono text-sm flex-1" onKeyDown={e => e.key === 'Enter' && load()} />
             <button onClick={load} disabled={!batchId.trim() || loading} className="btn-primary text-sm">{loading ? '...' : 'Load'}</button>
           </div>
+          {!batchId && (
+            <p className="text-xs text-[var(--ink-muted)] mt-3">
+              No reconciliation run yet — <a href="/upload" className="text-[var(--accent)] underline">upload files</a> to get started.
+            </p>
+          )}
+          {batchId && !loading && (
+            <p className="text-xs text-[var(--danger)] mt-3">
+              No records found for this batch. Make sure you ran reconciliation first.
+            </p>
+          )}
         </div>
       )}
 
@@ -141,7 +151,20 @@ function ResultsContent() {
                       <td className="px-4 py-2.5 text-center">
                         <span className={`badge ${r.status === 'matched' ? 'bg-[#f0fdf4] text-[var(--accent)]' : r.status === 'exception' ? 'bg-[var(--danger-soft)] text-[var(--danger)]' : r.status === 'rejected' ? 'bg-gray-100 text-gray-500' : 'bg-[#fffbeb] text-[#b45309]'}`}>{r.status}</span>
                       </td>
-                      <td className="px-4 py-2.5 text-xs text-[var(--ink-muted)] max-w-[160px] truncate">{r.match_reason || '—'}</td>
+                      <td className="px-4 py-2.5 text-xs text-[var(--ink-muted)] max-w-[250px] leading-relaxed">
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          <span className="break-words">{r.match_reason || '—'}</span>
+                          {r.status === 'exception' && r.confidence != null && (
+                            <span className={`inline-block text-[9px] px-1.5 py-0.5 rounded-full font-medium whitespace-nowrap ${
+                              r.confidence >= 0.7 ? 'bg-amber-100 text-amber-700' :
+                              r.confidence >= 0.4 ? 'bg-orange-100 text-orange-700' :
+                              'bg-red-100 text-red-600'
+                            }`}>
+                              {r.confidence >= 0.7 ? 'high' : r.confidence >= 0.4 ? 'med' : 'low'}
+                            </span>
+                          )}
+                        </div>
+                      </td>
                       {tab === 'exceptions' && (
                         <td className="px-4 py-2.5">
                           <div className="flex gap-1">

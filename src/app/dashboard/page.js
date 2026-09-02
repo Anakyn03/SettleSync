@@ -6,13 +6,14 @@ export default function DashboardPage() {
   const [data, setData] = useState(null)
   const [patterns, setPatterns] = useState(null)
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
 
   useEffect(() => {
     Promise.all([
       fetch('/api/analytics?type=overview').then(r => r.json()),
       fetch('/api/analytics?type=patterns').then(r => r.json()),
     ]).then(([d, p]) => { setData(d); setPatterns(p) })
-      .catch(() => {})
+      .catch(() => setError('Failed to load dashboard data. Make sure Supabase is configured.'))
       .finally(() => setLoading(false))
   }, [])
 
@@ -26,6 +27,8 @@ export default function DashboardPage() {
   return (
     <div className="max-w-5xl mx-auto space-y-8">
       <h1 className="text-2xl font-bold tracking-[-0.02em]">Dashboard</h1>
+
+      {error && <div className="bg-[var(--danger-soft)] text-[var(--danger)] text-sm px-4 py-3 rounded-xl">{error}</div>}
 
       {/* Stats */}
       <div className="grid grid-cols-4 gap-3">
