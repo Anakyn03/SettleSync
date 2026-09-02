@@ -13,6 +13,11 @@ const SAMPLE_SCENARIOS = [
   { id: '06-large', label: 'Large Dataset', desc: '200 records per source', files: ['razorpay', 'bank', 'internal'] },
   { id: '07-edge-amounts', label: 'Edge Amounts', desc: '₹0.01 to ₹999,999', files: ['razorpay', 'bank', 'internal'] },
   { id: '08-with-duplicates', label: 'With Duplicates', desc: '40 records + duplicate IDs', files: ['razorpay', 'bank', 'internal'] },
+  { id: '09-malformed', label: '⚠ Malformed CSV', desc: 'Missing fields, bad data', files: ['razorpay', 'bank', 'internal'], failure: true },
+  { id: '10-empty', label: '⚠ Empty Files', desc: 'Headers only, no records', files: ['razorpay', 'bank', 'internal'], failure: true },
+  { id: '11-wrong-columns', label: '⚠ Wrong Columns', desc: 'Non-standard header names', files: ['razorpay', 'bank', 'internal'], failure: true },
+  { id: '12-heavy-duplicates', label: '⚠ Heavy Duplicates', desc: 'Same ID repeated 3x', files: ['razorpay', 'bank', 'internal'], failure: true },
+  { id: '13-special-chars', label: '⚠ Special Chars', desc: 'Commas, quotes, negatives', files: ['razorpay', 'bank', 'internal'], failure: true },
 ]
 
 function parseCsvText(text, fileName) {
@@ -154,10 +159,19 @@ export default function UploadPage() {
             <div>
               <p className="text-xs text-[var(--ink-muted)] mb-2">Or try a sample scenario:</p>
               <div className="grid grid-cols-2 gap-2">
-                {SAMPLE_SCENARIOS.map(s => (
+                {SAMPLE_SCENARIOS.filter(s => !s.failure).map(s => (
                   <button key={s.id} onClick={() => loadSample(s)} disabled={loadingSample} className="text-left p-3 rounded-lg border border-[var(--border)] hover:border-[var(--accent)] hover:bg-[#f0fdfa] transition-colors disabled:opacity-50">
                     <div className="text-sm font-medium">{loadingSample ? '...' : s.label}</div>
                     <div className="text-xs text-[var(--ink-muted)]">{s.desc}</div>
+                  </button>
+                ))}
+              </div>
+              <p className="text-xs text-[var(--ink-muted)] mb-2 mt-4">Failure demos (graceful degradation):</p>
+              <div className="grid grid-cols-2 gap-2">
+                {SAMPLE_SCENARIOS.filter(s => s.failure).map(s => (
+                  <button key={s.id} onClick={() => loadSample(s)} disabled={loadingSample} className="text-left p-3 rounded-lg border border-dashed border-amber-300 hover:border-amber-500 hover:bg-amber-50 transition-colors disabled:opacity-50">
+                    <div className="text-sm font-medium text-amber-700">{loadingSample ? '...' : s.label}</div>
+                    <div className="text-xs text-amber-600">{s.desc}</div>
                   </button>
                 ))}
               </div>

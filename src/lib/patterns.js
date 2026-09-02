@@ -19,15 +19,15 @@ export async function learnPatterns(runId) {
   const db = getSupabase()
   const patterns = []
 
-  // Get all matched records for this run
+  // Get all matched records for this run (fee-adjusted + date-shifted)
   const { data: decisions } = await db
     .from('match_decisions')
     .select('*')
     .eq('run_id', runId)
-    .eq('match_type', 'fee-adjusted')
+    .in('match_type', ['fee-adjusted', 'date-shifted'])
 
   if (!decisions?.length) {
-    console.log('Patterns: No fee-adjusted matches to analyze')
+    console.log('Patterns: No fee/lag matches to analyze')
     return patterns
   }
 
@@ -41,7 +41,7 @@ export async function learnPatterns(runId) {
 
   // Learn fee patterns per source pair
   for (const [pair, matches] of Object.entries(byPair)) {
-    if (matches.length < 3) continue // Need enough samples
+    if (matches.length < 2) continue // Need at least 2 samples
 
     const fees = matches
       .map(m => {
@@ -55,7 +55,7 @@ export async function learnPatterns(runId) {
       })
       .filter(f => f !== null)
 
-    if (fees.length < 3) continue
+    if (fees.length < 2) continue
 
     fees.sort((a, b) => a - b)
     const minFee = fees[0]
@@ -87,7 +87,7 @@ export async function learnPatterns(runId) {
     }
 
     for (const [pair, lags] of Object.entries(lagByPair)) {
-      if (lags.length < 3) continue
+      if (lags.length < 2) continue
       const avgLag = lags.reduce((s, l) => s + l, 0) / lags.length
       const maxLag = Math.max(...lags)
 
