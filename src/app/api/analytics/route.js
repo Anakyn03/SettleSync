@@ -7,30 +7,45 @@ export async function GET(request) {
 
   try {
     if (type === 'overview') {
-      const { data: runs } = await db
+      const { data: runs, error } = await db
         .from('reconciliation_runs')
-        .select('id, batch_id, status, matched_count, exception_count, match_rate, started_at, completed_at')
+        .select('id, batch_id, status, total_records, matched_count, exception_count, match_rate, started_at, completed_at, created_at')
         .order('created_at', { ascending: false })
         .limit(10)
 
+      if (error) throw error
       return NextResponse.json({ runs: runs || [] })
     }
 
     if (type === 'patterns') {
-      const { data: patterns } = await db
+      // Get all patterns, then deduplicate in code (keep highest confidence per source+type)
+      const { data: allPatterns, error: pErr } = await db
         .from('source_patterns')
-        .select('source, pattern_type, confidence, sample_size, last_updated')
+        .select('id, source, pattern_type, pattern_value, confidence, sample_size, last_updated')
         .order('confidence', { ascending: false })
 
-      const { count: trainingSamples } = await db
+      if (pErr) throw pErr
+
+      // Deduplicate: keep highest confidence per source+pattern_type
+      const seen = new Map()
+      for (const p of allPatterns || []) {
+        const key = `${p.source}:${p.pattern_type}`
+        if (!seen.has(key)) seen.set(key, p)
+      }
+      const patterns = [...seen.values()]
+
+      const { count: trainingSamples, error: tErr } = await db
         .from('learning_data')
         .select('*', { count: 'exact', head: true })
 
-      return NextResponse.json({ patterns: patterns || [], trainingSamples: trainingSamples || 0 })
+      if (tErr) throw tErr
+
+      return NextResponse.json({ patterns, trainingSamples: trainingSamples || 0 })
     }
 
     return NextResponse.json({ error: 'Invalid type' }, { status: 400 })
   } catch (err) {
+    console.error('Analytics error:', err.message)
     return NextResponse.json({ error: err.message }, { status: 500 })
   }
 }

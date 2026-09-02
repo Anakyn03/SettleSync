@@ -301,18 +301,25 @@ export async function POST(request) {
     const exceptions = total - matched
     const matchRate = total ? Math.round((matched / total) * 10000) / 100 : 0
 
+    // Learn patterns BEFORE marking completed
+    updateProgress(batchId, { phase: 'learning', progress: 90, message: 'Learning patterns...' })
+    let patternsLearned = 0
+    try {
+      const learned = await learnPatterns(runId)
+      patternsLearned = learned?.length || 0
+    } catch (e) { console.error('Pattern learning failed:', e.message) }
+
+    // Now mark completed
     await db.from('reconciliation_runs')
       .update({
         status: 'completed',
+        total_records: total,
         matched_count: matched,
         exception_count: exceptions,
         match_rate: matchRate,
         completed_at: new Date().toISOString(),
       })
       .eq('id', runId)
-
-    updateProgress(batchId, { phase: 'learning', progress: 95, message: 'Learning patterns...' })
-    try { await learnPatterns(runId) } catch (e) { console.error('Pattern learning failed:', e.message) }
 
     updateProgress(batchId, { 
       phase: 'completed', progress: 100, message: 'Reconciliation complete',
@@ -326,6 +333,7 @@ export async function POST(request) {
       stats: { total, matched, exceptions, matchRate },
       pass1: { deterministic: pass1Decisions.length },
       pass2: { mlMatched, grokMatched, grokExceptions },
+      patterns: patternsLearned,
       ml: getModelInfo(),
     })
   } catch (err) {

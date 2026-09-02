@@ -101,14 +101,34 @@ export async function learnPatterns(runId) {
     }
   }
 
-  // Store patterns in database
+  // Store patterns in database (check for existing to avoid duplicates)
   for (const p of patterns) {
-    const { error } = await db
+    const { data: existing } = await db
       .from('source_patterns')
-      .upsert(p, { onConflict: 'source,pattern_type' })
-    
-    if (error) {
-      console.error(`Pattern storage failed for ${p.source}:${p.pattern_type}`, error)
+      .select('id')
+      .eq('source', p.source)
+      .eq('pattern_type', p.pattern_type)
+      .limit(1)
+
+    if (existing?.length) {
+      // Update existing pattern
+      await db
+        .from('source_patterns')
+        .update({
+          pattern_value: p.pattern_value,
+          sample_size: p.sample_size,
+          confidence: p.confidence,
+          last_updated: new Date().toISOString(),
+        })
+        .eq('id', existing[0].id)
+    } else {
+      // Insert new pattern
+      const { error } = await db
+        .from('source_patterns')
+        .insert(p)
+      if (error) {
+        console.error(`Pattern storage failed for ${p.source}:${p.pattern_type}`, error)
+      }
     }
   }
 

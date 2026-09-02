@@ -106,6 +106,7 @@ function ReconcileContent() {
           <div className="text-xs text-[var(--ink-muted)] space-y-1 bg-[#fafafa] rounded-lg px-4 py-3">
             <div>Rules: {results.pass1?.deterministic || 0}</div>
             <div>ML: {results.pass2?.mlMatched || 0} · Grok: {results.pass2?.grokMatched || 0} · Exceptions: {results.pass2?.grokExceptions || 0}</div>
+            {results.patterns > 0 && <div className="text-[var(--accent)]">Patterns learned: {results.patterns}</div>}
           </div>
 
           <div className="flex gap-2">
