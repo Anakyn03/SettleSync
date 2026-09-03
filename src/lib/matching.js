@@ -5,7 +5,7 @@
 
 export const FEE_THRESHOLD = 0.03    // 3% max fee difference
 export const AMOUNT_TOLERANCE = 0.50 // ₹0.50 absolute tolerance
-export const DATE_TOLERANCE = 2      // max 2 days apart
+export const DATE_TOLERANCE = 7      // max 7 days apart
 
 export function daysBetween(d1, d2) {
   return Math.round(Math.abs((new Date(d1) - new Date(d2)) / 86400000))

@@ -19,12 +19,12 @@ export async function learnPatterns(runId) {
   const db = getSupabase()
   const patterns = []
 
-  // Get all matched records for this run (fee-adjusted + date-shifted)
+  // Get all matched records for this run (exact + fee-adjusted + date-shifted)
   const { data: decisions } = await db
     .from('match_decisions')
     .select('*')
     .eq('run_id', runId)
-    .in('match_type', ['fee-adjusted', 'date-shifted'])
+    .in('match_type', ['exact', 'fee-adjusted', 'date-shifted'])
 
   if (!decisions?.length) {
     console.log('Patterns: No fee/lag matches to analyze')

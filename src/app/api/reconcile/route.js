@@ -15,6 +15,7 @@ const ML_AUTO_REJECT = 0.20
 
 function evaluateGroup(records) {
   const result = []
+  const matchedIds = new Set()
   for (let i = 0; i < records.length; i++) {
     let bestReason = null, bestPartner = null, bestScore = -1
     for (let j = 0; j < records.length; j++) {
@@ -25,9 +26,13 @@ function evaluateGroup(records) {
         if (score > bestScore) { bestScore = score; bestReason = reason; bestPartner = records[j] }
       }
     }
-    // Only emit match when i < j to avoid duplicate pairs (A→B and B→A)
-    if (bestPartner && records[i].id < bestPartner.id) {
-      result.push({ record: records[i], partner: bestPartner, reason: bestReason })
+    if (bestPartner) {
+      matchedIds.add(records[i].id)
+      matchedIds.add(bestPartner.id)
+      // Only create decision record once per pair (lower id first)
+      if (records[i].id < bestPartner.id) {
+        result.push({ record: records[i], partner: bestPartner, reason: bestReason })
+      }
     }
   }
   return result
@@ -117,14 +122,27 @@ export async function POST(request) {
       if (group.length < 2) continue
       const matches = evaluateGroup(group)
 
+      // Mark ALL matched records (including higher-id partners)
+      const matchedInGroup = new Set()
+      for (const { record, partner, reason } of matches) {
+        matchedInGroup.add(record.id)
+        matchedInGroup.add(partner.id)
+      }
+      for (const r of group) {
+        if (matchedInGroup.has(r.id)) {
+          r.status = 'matched'
+          r.match_reason = matches[0]?.reason || 'exact'
+          r.confidence = 100
+        }
+      }
+
+      // Create decision records for unique pairs
       for (const { record, partner, reason } of matches) {
         const features = extractFeatures(record, partner)
         const confidence = calculateConfidence(record, partner, allPatterns)
 
-        record.status = 'matched'
         record.match_reason = reason
         record.confidence = confidence
-        partner.status = 'matched'
         partner.match_reason = reason
         partner.confidence = confidence
 
@@ -286,6 +304,7 @@ export async function POST(request) {
         .update({
           status: r.status,
           match_reason: r.match_reason || (r.status === 'exception' ? 'No matching transaction found' : null),
+          confidence: r.confidence || 0,
         })
         .eq('id', r.id)
       if (updErr) console.error(`Failed to update record ${r.id}:`, updErr.message)

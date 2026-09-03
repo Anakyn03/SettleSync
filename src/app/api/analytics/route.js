@@ -11,7 +11,6 @@ export async function GET(request) {
         .from('reconciliation_runs')
         .select('id, batch_id, status, total_records, matched_count, exception_count, match_rate, started_at, completed_at, created_at')
         .order('created_at', { ascending: false })
-        .limit(10)
 
       if (error) throw error
       return NextResponse.json({ runs: runs || [] })
