@@ -19,89 +19,100 @@ export async function learnPatterns(runId) {
   const db = getSupabase()
   const patterns = []
 
-  // Get all matched records for this run (exact + fee-adjusted + date-shifted)
+  // Fetch all matched settlements for this run directly from the raw data
+  // This is more reliable than computing from match_decisions feature vectors
   const { data: decisions } = await db
     .from('match_decisions')
-    .select('*')
+    .select('record_a_id, record_b_id, match_type, feature_vector')
     .eq('run_id', runId)
-    .in('match_type', ['exact', 'fee-adjusted', 'date-shifted'])
+    .neq('match_type', 'exception')
 
   if (!decisions?.length) {
-    console.log('Patterns: No fee/lag matches to analyze')
+    console.log('Patterns: No matched decisions to analyze')
     return patterns
   }
 
-  // Group by source pair
+  // Fetch the actual settlement records for these pairs
+  const recordIds = new Set()
+  for (const d of decisions) {
+    recordIds.add(d.record_a_id)
+    recordIds.add(d.record_b_id)
+  }
+  const { data: records } = await db
+    .from('settlements')
+    .select('id, source, txn_id, amount, txn_date')
+    .in('id', [...recordIds])
+
+  if (!records?.length) return patterns
+
+  // Index records by id for quick lookup
+  const recordMap = {}
+  for (const r of records) recordMap[r.id] = r
+
+  // Group decisions by source pair
   const byPair = {}
   for (const d of decisions) {
-    const pair = d.feature_vector?.source_pair || 'unknown'
+    const a = recordMap[d.record_a_id]
+    const b = recordMap[d.record_b_id]
+    if (!a || !b) continue
+    const pair = [a.source, b.source].sort().join('-')
     if (!byPair[pair]) byPair[pair] = []
-    byPair[pair].push(d)
+    byPair[pair].push({ a, b })
   }
 
-  // Learn fee patterns per source pair
-  for (const [pair, matches] of Object.entries(byPair)) {
-    if (matches.length < 2) continue // Need at least 2 samples
+  // Learn fee patterns per source pair from raw amounts
+  for (const [pair, pairs] of Object.entries(byPair)) {
+    if (pairs.length < 2) continue
 
-    const fees = matches
-      .map(m => {
-        const av = m.feature_vector
-        if (!av?.amount_diff || !av?.amount_ratio || av.amount_ratio <= 0) return null
-        // amount_diff / (max amount) = actual fee percentage
-        // amount_ratio = min/max, so max = amount_diff / (1 - amount_ratio) when amounts differ
-        const maxAmt = av.amount_ratio < 1 ? av.amount_diff / (1 - av.amount_ratio) : av.amount_diff
-        const feePct = maxAmt > 0 ? av.amount_diff / maxAmt : 0
-        return feePct > 0 && feePct < 0.1 ? feePct : null
+    const fees = pairs
+      .map(({ a, b }) => {
+        const maxAmt = Math.max(Number(a.amount), Number(b.amount))
+        if (maxAmt <= 0) return null
+        const diff = Math.abs(Number(a.amount) - Number(b.amount))
+        const feePct = diff / maxAmt
+        // Only count meaningful fees (0.1% to 10%)
+        return feePct >= 0.001 && feePct <= 0.1 ? feePct : null
       })
       .filter(f => f !== null)
 
-    if (fees.length < 2) continue
-
-    fees.sort((a, b) => a - b)
-    const minFee = fees[0]
-    const maxFee = fees[fees.length - 1]
-    const avgFee = fees.reduce((s, f) => s + f, 0) / fees.length
-
-    patterns.push({
-      source: pair,
-      pattern_type: 'fee',
-      pattern_value: { min_fee: minFee, max_fee: maxFee, avg_fee: avgFee },
-      sample_size: fees.length,
-      confidence: Math.min(1, fees.length / 20), // More samples = more confidence
-    })
-  }
-
-  // Learn lag patterns
-  const { data: lagData } = await db
-    .from('match_decisions')
-    .select('*')
-    .eq('run_id', runId)
-
-  if (lagData?.length) {
-    const lagByPair = {}
-    for (const d of lagData) {
-      const pair = d.feature_vector?.source_pair || 'unknown'
-      const dateDiff = d.feature_vector?.date_diff || 0
-      if (!lagByPair[pair]) lagByPair[pair] = []
-      lagByPair[pair].push(dateDiff)
+    if (fees.length >= 2) {
+      fees.sort((a, b) => a - b)
+      patterns.push({
+        source: pair,
+        pattern_type: 'fee',
+        pattern_value: {
+          min_fee: fees[0],
+          max_fee: fees[fees.length - 1],
+          avg_fee: fees.reduce((s, f) => s + f, 0) / fees.length,
+        },
+        sample_size: fees.length,
+        confidence: Math.min(1, fees.length / 20),
+      })
     }
 
-    for (const [pair, lags] of Object.entries(lagByPair)) {
-      if (lags.length < 2) continue
-      const avgLag = lags.reduce((s, l) => s + l, 0) / lags.length
-      const maxLag = Math.max(...lags)
+    // Learn lag patterns from raw dates
+    const lags = pairs
+      .map(({ a, b }) => {
+        const diff = Math.round(Math.abs((new Date(a.txn_date) - new Date(b.txn_date)) / 86400000))
+        return diff
+      })
+      .filter(d => d > 0) // Only count actual lags (not same-day)
 
+    if (lags.length >= 2) {
       patterns.push({
         source: pair,
         pattern_type: 'lag',
-        pattern_value: { avg_lag_days: avgLag, max_lag_days: maxLag },
+        pattern_value: {
+          avg_lag_days: lags.reduce((s, l) => s + l, 0) / lags.length,
+          max_lag_days: Math.max(...lags),
+        },
         sample_size: lags.length,
         confidence: Math.min(1, lags.length / 20),
       })
     }
   }
 
-  // Store patterns in database (check for existing to avoid duplicates)
+  // Store patterns in database (upsert by source+type)
   for (const p of patterns) {
     const { data: existing } = await db
       .from('source_patterns')
@@ -111,24 +122,15 @@ export async function learnPatterns(runId) {
       .limit(1)
 
     if (existing?.length) {
-      // Update existing pattern
-      await db
-        .from('source_patterns')
-        .update({
-          pattern_value: p.pattern_value,
-          sample_size: p.sample_size,
-          confidence: p.confidence,
-          last_updated: new Date().toISOString(),
-        })
-        .eq('id', existing[0].id)
+      await db.from('source_patterns').update({
+        pattern_value: p.pattern_value,
+        sample_size: p.sample_size,
+        confidence: p.confidence,
+        last_updated: new Date().toISOString(),
+      }).eq('id', existing[0].id)
     } else {
-      // Insert new pattern
-      const { error } = await db
-        .from('source_patterns')
-        .insert(p)
-      if (error) {
-        console.error(`Pattern storage failed for ${p.source}:${p.pattern_type}`, error)
-      }
+      const { error } = await db.from('source_patterns').insert(p)
+      if (error) console.error(`Pattern insert failed: ${p.source}:${p.pattern_type}`, error.message)
     }
   }
 
