@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server'
 import { getSupabase } from '@/lib/supabase'
 
+export const dynamic = 'force-dynamic'
+
 export async function GET(request) {
   const type = new URL(request.url).searchParams.get('type') || 'overview'
   const db = getSupabase()
@@ -39,7 +41,10 @@ export async function GET(request) {
 
       if (tErr) throw tErr
 
-      return NextResponse.json({ patterns, trainingSamples: trainingSamples || 0 })
+      console.log(`Analytics: returning ${patterns.length} patterns, ${trainingSamples || 0} training samples`)
+      return NextResponse.json({ patterns, trainingSamples: trainingSamples || 0, _ts: Date.now() }, {
+        headers: { 'Cache-Control': 'no-store, max-age=0' }
+      })
     }
 
     return NextResponse.json({ error: 'Invalid type' }, { status: 400 })

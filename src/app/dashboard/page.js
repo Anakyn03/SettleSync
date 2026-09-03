@@ -9,9 +9,10 @@ export default function DashboardPage() {
   const [error, setError] = useState('')
 
   useEffect(() => {
+    const ts = Date.now()
     Promise.all([
-      fetch('/api/analytics?type=overview').then(r => r.json()),
-      fetch('/api/analytics?type=patterns').then(r => r.json()),
+      fetch(`/api/analytics?type=overview&_t=${ts}`).then(r => r.json()),
+      fetch(`/api/analytics?type=patterns&_t=${ts}`).then(r => r.json()),
     ]).then(([d, p]) => { setData(d); setPatterns(p) })
       .catch(() => setError('Failed to load dashboard data. Make sure Supabase is configured.'))
       .finally(() => setLoading(false))
