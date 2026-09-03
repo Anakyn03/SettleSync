@@ -1,136 +1,174 @@
-const fs = require('fs');
-const path = require('path');
+const fs = require('fs')
+const path = require('path')
 
-const OUT = path.join(__dirname, '..', 'public', 'data', 'samples');
-fs.mkdirSync(OUT, { recursive: true });
+const OUT = path.join(__dirname, '..', 'public', 'data', 'samples')
+fs.mkdirSync(OUT, { recursive: true })
+
+// ── Business calendar: Mon-Fri only, Aug 11 – Aug 29, 2026 (all UTC) ──
+const BIZ_DAYS = []
+{
+  for (let day = 11; day <= 29; day++) {
+    const d = new Date(Date.UTC(2026, 7, day))
+    const dow = d.getUTCDay()
+    if (dow >= 1 && dow <= 5) BIZ_DAYS.push(d)
+  }
+}
+function fmt(d) {
+  const y = d.getUTCFullYear()
+  const m = String(d.getUTCMonth() + 1).padStart(2, '0')
+  const day = String(d.getUTCDate()).padStart(2, '0')
+  return `${y}-${m}-${day}`
+}
+function addBizDays(d, n) {
+  const r = new Date(d.getTime())
+  let added = 0
+  while (added < n) {
+    r.setUTCDate(r.getUTCDate() + 1)
+    if (r.getUTCDay() >= 1 && r.getUTCDay() <= 5) added++
+  }
+  return r
+}
+function pick(arr, i) { return new Date(arr[i % arr.length].getTime()) }
 
 function write(name, rows) {
-  const dir = path.join(OUT, name);
-  fs.mkdirSync(dir, { recursive: true });
+  const dir = path.join(OUT, name)
+  fs.mkdirSync(dir, { recursive: true })
   for (const [src, data] of Object.entries(rows)) {
-    fs.writeFileSync(path.join(dir, `${src}.csv`), ['txn_id,amount,date', ...data.map(r => r.join(','))].join('\n'));
+    fs.writeFileSync(path.join(dir, `${src}.csv`),
+      ['txn_id,amount,date', ...data.map(r => r.join(','))].join('\n'))
   }
-  console.log(`  ${name}: ${Object.values(rows)[0].length} records per source`);
+  const n = Object.values(rows)[0].length
+  console.log(`  ${name}: ${n} records per source`)
 }
 
-function rng(seed) {
-  let s = seed;
-  return function() { s = (s * 16807) % 2147483647; return s / 2147483647; };
+// ── 01: Perfect Match ──
+// All 3 sources: same txn_id, same amount, same date
+{
+  const ids = Array.from({ length: 40 }, (_, i) => `TXN${String(i + 1).padStart(4, '0')}`)
+  const mk = (amtFn) => ids.map((id, i) => [id, amtFn(i), fmt(pick(BIZ_DAYS, i))])
+  write('01-perfect-match', {
+    razorpay: mk(i => (1500 + i * 823.7) % 50000).map(r => [r[0], r[1].toFixed(2), r[2]]),
+    bank:     mk(i => (1500 + i * 823.7) % 50000).map(r => [r[0], r[1].toFixed(2), r[2]]),
+    internal: mk(i => (1500 + i * 823.7) % 50000).map(r => [r[0], r[1].toFixed(2), r[2]]),
+  })
 }
 
-function genIds(n, prefix, rand) {
-  var ids = [];
-  var seen = {};
-  while (ids.length < n) {
-    var id = prefix + String(Math.floor(rand() * 900000) + 100000);
-    if (!seen[id]) { seen[id] = true; ids.push(id); }
+// ── 02: Fee Adjusted (bank takes 2% fee, settles next business day) ──
+{
+  const ids = Array.from({ length: 35 }, (_, i) => `INV${String(i + 1).padStart(4, '0')}`)
+  const razorpay = ids.map((id, i) => {
+    const amt = (2000 + i * 1234.56) % 80000
+    return [id, amt.toFixed(2), fmt(pick(BIZ_DAYS, i))]
+  })
+  const bank = ids.map((id, i) => {
+    const rzAmt = Number(razorpay[i][1])
+    const bankAmt = (rzAmt * 0.98).toFixed(2)
+    const rzDate = new Date(razorpay[i][2])
+    return [id, bankAmt, fmt(addBizDays(rzDate, 1))]
+  })
+  const internal = ids.map((id, i) => {
+    const amt = (2000 + i * 1234.56) % 80000
+    return [id, amt.toFixed(2), fmt(pick(BIZ_DAYS, i))]
+  })
+  write('02-fee-adjusted', { razorpay, bank, internal })
+}
+
+// ── 03: Date Shifted (bank settles 2-4 business days late, same amount) ──
+{
+  const ids = Array.from({ length: 45 }, (_, i) => `PAY${String(i + 1).padStart(4, '0')}`)
+  const razorpay = ids.map((id, i) => {
+    const amt = (3000 + i * 987.32) % 60000
+    return [id, amt.toFixed(2), fmt(pick(BIZ_DAYS, i))]
+  })
+  const bank = ids.map((id, i) => {
+    const rzDate = new Date(razorpay[i][2])
+    const lag = [2, 3, 3, 4][i % 4]
+    return [id, razorpay[i][1], fmt(addBizDays(rzDate, lag))]
+  })
+  const internal = ids.map((id, i) => {
+    const amt = (3000 + i * 987.32) % 60000
+    return [id, amt.toFixed(2), fmt(pick(BIZ_DAYS, i))]
+  })
+  write('03-date-shifted', { razorpay, bank, internal })
+}
+
+// ── 04: Mixed Realistic ──
+// 60% exact, 20% fee-adjusted, 10% date-shifted, 10% orphan
+{
+  const ids = Array.from({ length: 50 }, (_, i) => `ORD${String(i + 1).padStart(4, '0')}`)
+  const rRows = [], bRows = [], iRows = []
+
+  for (let i = 0; i < 50; i++) {
+    const id = ids[i]
+    const amt = (1000 + i * 1567.89) % 70000
+    const date = fmt(pick(BIZ_DAYS, i))
+
+    if (i < 30) {
+      // Exact — same in all 3
+      rRows.push([id, amt.toFixed(2), date])
+      bRows.push([id, amt.toFixed(2), date])
+      iRows.push([id, amt.toFixed(2), date])
+    } else if (i < 40) {
+      // Fee-adjusted — bank takes 2%, settles next day
+      rRows.push([id, amt.toFixed(2), date])
+      bRows.push([id, (amt * 0.98).toFixed(2), fmt(addBizDays(new Date(date), 1))])
+      iRows.push([id, amt.toFixed(2), date])
+    } else if (i < 45) {
+      // Date-shifted — bank 3 days late
+      rRows.push([id, amt.toFixed(2), date])
+      bRows.push([id, amt.toFixed(2), fmt(addBizDays(new Date(date), 3))])
+      iRows.push([id, amt.toFixed(2), date])
+    } else {
+      // Orphan — only in razorpay
+      rRows.push([id, amt.toFixed(2), date])
+    }
   }
-  return ids;
+  write('04-mixed', { razorpay: rRows, bank: bRows, internal: iRows })
 }
 
-function genDate(rand, baseDays) {
-  baseDays = baseDays || 0;
-  var d = new Date(2026, 7, 15 + baseDays + Math.floor(rand() * 15));
-  return d.toISOString().split('T')[0];
+// ── 05: No Matches ──
+// Completely different txn_ids across sources
+{
+  const rIds = Array.from({ length: 25 }, (_, i) => `R${String(i + 1).padStart(4, '0')}`)
+  const bIds = Array.from({ length: 25 }, (_, i) => `B${String(i + 1).padStart(4, '0')}`)
+  const iIds = Array.from({ length: 25 }, (_, i) => `I${String(i + 1).padStart(4, '0')}`)
+  write('05-no-matches', {
+    razorpay: rIds.map((id, i) => [id, ((500 + i * 2000) % 30000).toFixed(2), fmt(pick(BIZ_DAYS, i))]),
+    bank:     bIds.map((id, i) => [id, ((800 + i * 1800) % 28000).toFixed(2), fmt(pick(BIZ_DAYS, i))]),
+    internal: iIds.map((id, i) => [id, ((600 + i * 2200) % 32000).toFixed(2), fmt(pick(BIZ_DAYS, i))]),
+  })
 }
 
-function genAmount(rand, min, max) {
-  min = min || 500; max = max || 50000;
-  return Math.round((min + rand() * (max - min)) * 100) / 100;
+// ── 06: Large Dataset (200 per source) ──
+{
+  const ids = Array.from({ length: 200 }, (_, i) => `TXN${String(i + 1).padStart(5, '0')}`)
+  const mk = () => ids.map((id, i) => {
+    const amt = (100 + i * 478.91) % 100000
+    return [id, amt.toFixed(2), fmt(pick(BIZ_DAYS, i))]
+  })
+  write('06-large', { razorpay: mk(), bank: mk(), internal: mk() })
 }
 
-// 1. Perfect match
-(function() {
-  var r = rng(42);
-  var ids = genIds(40, 'TXN', r);
-  var mk = function() { return ids.map(function(id) { return [id, genAmount(r), genDate(r)]; }); };
-  write('01-perfect-match', { razorpay: mk(), bank: mk(), internal: mk() });
-})();
+// ── 07: Edge Amounts ──
+{
+  const amounts = [0.01, 1.00, 10.00, 100.00, 999.99, 1000.00, 5000.00, 10000.00, 50000.00, 999999.99]
+  const ids = amounts.map((_, i) => `EDGE${String(i + 1).padStart(3, '0')}`)
+  const mk = () => ids.map((id, i) => [id, amounts[i].toFixed(2), fmt(pick(BIZ_DAYS, i))])
+  write('07-edge-amounts', { razorpay: mk(), bank: mk(), internal: mk() })
+}
 
-// 2. Fee-adjusted (bank takes 2% fee)
-(function() {
-  var r = rng(123);
-  var ids = genIds(35, 'INV', r);
-  var razorpay = ids.map(function(id) { return [id, genAmount(r), genDate(r)]; });
-  var bank = ids.map(function(id, i) { return [id, (razorpay[i][1] * 0.98).toFixed(2), genDate(r, 1)]; });
-  var internal = ids.map(function(id) { return [id, genAmount(r), genDate(r)]; });
-  write('02-fee-adjusted', { razorpay: razorpay, bank: bank, internal: internal });
-})();
+// ── 08: With Duplicates ──
+{
+  const ids = Array.from({ length: 30 }, (_, i) => `STR${String(i + 1).padStart(4, '0')}`)
+  const mk = () => {
+    const rows = ids.map((id, i) => [id, ((1000 + i * 1500) % 25000).toFixed(2), fmt(pick(BIZ_DAYS, i))])
+    // Add 10 duplicates (same txn_id, different amount — realistic data entry error)
+    for (let i = 0; i < 10; i++) {
+      rows.push([ids[i], ((1000 + i * 1500 + 500) % 25000).toFixed(2), fmt(pick(BIZ_DAYS, i + 5))])
+    }
+    return rows
+  }
+  write('08-with-duplicates', { razorpay: mk(), bank: mk(), internal: mk() })
+}
 
-// 3. Date-shifted (bank settles 2-3 days late)
-(function() {
-  var r = rng(456);
-  var ids = genIds(45, 'PAY', r);
-  var razorpay = ids.map(function(id) { return [id, genAmount(r), genDate(r)]; });
-  var bank = ids.map(function(id, i) { return [id, razorpay[i][1], genDate(r, 2 + Math.floor(r() * 2))]; });
-  var internal = ids.map(function(id) { return [id, genAmount(r), genDate(r)]; });
-  write('03-date-shifted', { razorpay: razorpay, bank: bank, internal: internal });
-})();
-
-// 4. Mixed realistic
-(function() {
-  var r = rng(789);
-  var exactIds = genIds(30, 'ORD', r);
-  var feeIds = genIds(10, 'TXN', r);
-  var shiftIds = genIds(5, 'PAY', r);
-  var orphR = genIds(5, 'ORP', r);
-  var orphB = genIds(5, 'MIS', r);
-
-  var razorpay = {};
-  exactIds.forEach(function(id) { razorpay[id] = genAmount(r); });
-  feeIds.forEach(function(id) { razorpay[id] = genAmount(r); });
-  shiftIds.forEach(function(id) { razorpay[id] = genAmount(r); });
-  orphR.forEach(function(id) { razorpay[id] = genAmount(r); });
-
-  var rRows = Object.keys(razorpay).map(function(id) { return [id, razorpay[id], genDate(r)]; });
-  var bRows = [];
-  exactIds.forEach(function(id) { bRows.push([id, razorpay[id], genDate(r)]); });
-  feeIds.forEach(function(id) { bRows.push([id, (razorpay[id] * 0.98).toFixed(2), genDate(r, 1)]); });
-  shiftIds.forEach(function(id) { bRows.push([id, razorpay[id], genDate(r, 2)]); });
-  orphB.forEach(function(id) { bRows.push([id, genAmount(r), genDate(r)]); });
-  var iRows = [];
-  exactIds.forEach(function(id) { iRows.push([id, razorpay[id], genDate(r)]); });
-  feeIds.forEach(function(id) { iRows.push([id, razorpay[id], genDate(r)]); });
-  shiftIds.forEach(function(id) { iRows.push([id, razorpay[id], genDate(r)]); });
-
-  write('04-mixed', { razorpay: rRows, bank: bRows, internal: iRows });
-})();
-
-// 5. No matches
-(function() {
-  var r = rng(321);
-  var mk = function(p) { return genIds(25, p, r).map(function(id) { return [id, genAmount(r), genDate(r)]; }); };
-  write('05-no-matches', { razorpay: mk('R'), bank: mk('B'), internal: mk('I') });
-})();
-
-// 6. Large (200 per source)
-(function() {
-  var r = rng(654);
-  var ids = genIds(200, 'TXN', r);
-  var mk = function() { return ids.map(function(id) { return [id, genAmount(r, 100, 100000), genDate(r)]; }); };
-  write('06-large', { razorpay: mk(), bank: mk(), internal: mk() });
-})();
-
-// 7. Edge amounts
-(function() {
-  var r = rng(111);
-  var amounts = [0.01, 1, 10, 100, 999.99, 1000, 5000, 10000, 50000, 999999.99];
-  var ids = amounts.map(function(_, i) { return 'EDGE' + String(i + 1).padStart(3, '0'); });
-  var mk = function() { return ids.map(function(id, i) { return [id, amounts[i], genDate(r, i)]; }); };
-  write('07-edge-amounts', { razorpay: mk(), bank: mk(), internal: mk() });
-})();
-
-// 8. Stress test (duplicates within source)
-(function() {
-  var r = rng(222);
-  var ids = genIds(30, 'STR', r);
-  var dupIds = ids.slice(0, 10);
-  var mk = function() {
-    var rows = ids.map(function(id) { return [id, genAmount(r), genDate(r)]; });
-    dupIds.forEach(function(id) { rows.push([id, genAmount(r), genDate(r)]); });
-    return rows;
-  };
-  write('08-with-duplicates', { razorpay: mk(), bank: mk(), internal: mk() });
-})();
-
-console.log('\nDone! 8 sample scenarios created in public/data/samples/');
+console.log('\nDone! 8 normal scenarios created in public/data/samples/')
